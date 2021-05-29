@@ -20,9 +20,9 @@ INIT = 1e-2
 
 class Im2LatexModel(nn.Module):
     def __init__(self, out_size, emb_size,
-                 enc_rnn_h, dec_rnn_h, n_layer=1,
-                 cnn="stanford", attn=2, rnn_enc=False,
-                 dec_init=0):
+                 enc_rnn_h, dec_rnn_h,
+                 cnn, attn, rnn_enc, dec_init,
+                 n_layer=1):
 
         super(Im2LatexModel, self).__init__()
 
