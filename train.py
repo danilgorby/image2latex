@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from utils import collate_fn, build_vocab
 from data import Im2LatexDataset
-from model import Im2LatexModel
+from model import Im2LatexModel  # check this
 from training import Trainer
 from make_vocab import make_vocab
 
@@ -70,6 +70,32 @@ def main():
         default=4,
         help="The frequency to print message")
 
+    # new args
+    parser.add_argument(
+        "--cnn",
+        type=str,
+        default='stanford',
+        help="cnn model specification")
+
+    parser.add_argument(
+        "--attn",
+        type=int,
+        default=1,
+        help="attention type")
+
+    parser.add_argument(
+        "--rnn_enc",
+        type=bool,
+        default=True,
+        help="rnn encoder after cnn")
+
+    parser.add_argument(
+        "--dec_init",
+        type=int,
+        default=0,
+        help="decoder hidden states initialization")
+
+
     args = parser.parse_args()
 
     # Building vocab
@@ -97,7 +123,8 @@ def main():
     # construct model
     vocab_size = len(vocab)
     model = Im2LatexModel(vocab_size, args.emb_dim, args.enc_rnn_h,
-                          args.dec_rnn_h)
+                          args.dec_rnn_h, args.cnn, args.attn,
+                          args.rnn_enc, args.dec_init)
     model = model.to(device)
 
     # construct optimizer

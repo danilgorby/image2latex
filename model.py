@@ -38,6 +38,7 @@ class Im2LatexModel(nn.Module):
         self.rnn_encoder = nn.LSTM(64, enc_rnn_h,
                                    bidirectional=True,
                                    batch_first=True)
+
         self.rnn_decoder = nn.LSTMCell(enc_rnn_h+emb_size, dec_rnn_h)
         self.embedding = nn.Embedding(out_size, emb_size)
 
