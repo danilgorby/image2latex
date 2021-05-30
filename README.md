@@ -1,7 +1,5 @@
 # Im2Latex
 
-![License](https://img.shields.io/apm/l/vim-mode.svg)
-
 Neural Model converting Image to Latex.
 
 ![Network structure of Im2latex Model](./imgs/model_structure.png)
@@ -37,13 +35,3 @@ After that, to train and evaluate model on full dataset, you can just pass the f
 ```shel
 python3 train.py --data_path=FULL_DATASET_PATH
 ```
-
-
-
-### Reference
-
-[What You Get Is What You See:A Visual Markup Decompiler](https://arxiv.org/pdf/1609.04938v1.pdf)
-
-[The Official Torch implemention](https://github.com/harvardnlp/im2markup)
-
-[A Tensorflow implemention](https://github.com/guillaumegenthial/im2latex/)
