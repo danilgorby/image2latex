@@ -5,11 +5,12 @@ import torch.nn.functional as F
 from torch.nn.utils import clip_grad_norm_
 
 from make_vocab import PAD_TOKEN
+import wandb
 
 
 class Trainer(object):
     def __init__(self, optimizer, model, lr_scheduler,
-                 train_loader, val_loader, args):
+                 train_loader, val_loader, args, start_epoch=0, global_step=0):
 
         self.optimizer = optimizer
         self.model = model
@@ -18,11 +19,12 @@ class Trainer(object):
         self.val_loader = val_loader
         self.args = args
 
-        self.step = 0
-        self.epoch = 1
+        self.step = global_step
+        self.epoch = strart_epoch
         self.best_val_loss = 1e18
 
     def train(self):
+        wandb.watch(self.model)
         while self.epoch <= self.args.epochs:
             self.model.train()
             losses = 0.0
@@ -33,6 +35,7 @@ class Trainer(object):
                 # log message
                 if self.step % self.args.print_freq == 0:
                     total_step = len(self.train_loader)
+                    wandb.log({"epoch": self.epoch, "loss": losses / self.args.print_freq})
                     print("Epoch {}, step:{}/{} {:.2f}%, Loss:{:.4f}".format(
                         self.epoch, self.step, total_step,
                         100 * self.step / total_step,
@@ -76,9 +79,26 @@ class Trainer(object):
                 loss = self.cal_loss(logits, tgt4cal_loss)
                 val_total_loss += loss
             avg_loss = val_total_loss / len(self.val_loader)
+            wandb.log({"epoch:": self.epoch, "val_avg_loss": avg_loss})
             print("Epoch {}, validation average loss: {:.4f}".format(
                 self.epoch, avg_loss
             ))
+
+        checkpoint = {
+            'epoch': self.epoch,
+            'global_step': self.step,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.lr_scheduler.state_dict()
+        }
+
+        filename = join(self.args.log_dir, "{epoch:02d}-{val_loss:.4f}".format(
+            epoch=self.epoch, val_loss=avg_loss))
+
+        torch.save(checkpoint, filename)
+
+        wandb.save(filename)
+
         if avg_loss < self.best_val_loss:
             self.best_val_loss = avg_loss
             self.save_model()
@@ -109,5 +129,5 @@ class Trainer(object):
         print("Saving as best model...")
         torch.save(
             self.model.state_dict(),
-            join(self.args.save_dir, 'best_ckpt')
+            join(self.args.log_dir, 'best.pkl')
         )

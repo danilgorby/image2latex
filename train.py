@@ -12,6 +12,9 @@ from data import Im2LatexDataset
 from model import Im2LatexModel  # check this
 from training import Trainer
 from make_vocab import make_vocab
+import wandb
+from datetime import datetime
+import os
 
 
 def main():
@@ -55,10 +58,16 @@ def main():
     parser.add_argument(
         "--clip", type=float, default=5.0, help="The max gradient norm")
     parser.add_argument(
-        "--save_dir",
+        "--log_dir",
         type=str,
-        default="./ckpt",
-        help="The dir to save checkpoint")
+        default=f'./wandb/run-{datetime.now().strftime("%d/%m/%Y %H:%M:%S")}/',
+        help="The dir to save checkpoints")
+    parser.add_argument(
+        "--load_from_chekpoint",
+        type=str,
+        default=None,
+        help="path to checkpoint, you want to start from"
+    )
     parser.add_argument(
         "--vocab_path",
         type=str,
@@ -95,8 +104,12 @@ def main():
         default=0,
         help="decoder hidden states initialization")
 
+    wandb.login()
 
     args = parser.parse_args()
+
+    if not os.path.exists(args.log_dir):
+        os.mkdir(args.log_dir)
 
     # Building vocab
     make_vocab(args.data_path)
@@ -125,7 +138,6 @@ def main():
     model = Im2LatexModel(vocab_size, args.emb_dim, args.enc_rnn_h,
                           args.dec_rnn_h, args.cnn, args.attn,
                           args.rnn_enc, args.dec_init)
-    model = model.to(device)
 
     # construct optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -136,11 +148,24 @@ def main():
         patience=args.lr_patience,
         verbose=True)
 
-    # init trainer
-    trainer = Trainer(optimizer, model, lr_scheduler, train_loader, val_loader,
-                      args)
-    # begin training
-    trainer.train()
+    with wandb.init(project='im2latex', config=args):
+
+        epoch = 0
+        global_step = 0
+
+        if args.load_form_checkpoint:
+            checkpoint = torch.load(args.load_fr0m_checkpoint)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            epoch = checkpoint['epoch']
+            global_step = checkpoint['global_step']
+
+        model = model.to(device)
+        # init trainer
+        trainer = Trainer(optimizer, model, lr_scheduler, train_loader, val_loader, args, epoch, global_step)
+        # begin training
+        trainer.train()
 
 
 if __name__ == "__main__":
