@@ -60,10 +60,10 @@ def main():
     parser.add_argument(
         "--log_dir",
         type=str,
-        default=f'./wandb/run-{datetime.now().strftime("%d/%m/%Y %H:%M:%S")}/',
+        default=f'./checkpoints/',
         help="The dir to save checkpoints")
     parser.add_argument(
-        "--load_from_chekpoint",
+        "--load_from_checkpoint",
         type=str,
         default=None,
         help="path to checkpoint, you want to start from"
@@ -153,7 +153,7 @@ def main():
         epoch = 0
         global_step = 0
 
-        if args.load_form_checkpoint:
+        if args.load_from_checkpoint:
             checkpoint = torch.load(args.load_fr0m_checkpoint)
             model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

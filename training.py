@@ -20,7 +20,7 @@ class Trainer(object):
         self.args = args
 
         self.step = global_step
-        self.epoch = strart_epoch
+        self.epoch = start_epoch
         self.best_val_loss = 1e18
 
     def train(self):
@@ -40,7 +40,7 @@ class Trainer(object):
                         self.epoch, self.step, total_step,
                         100 * self.step / total_step,
                         losses / self.args.print_freq
-                    ))
+                    ), end='')
                     losses = 0.0
             # one epoch Finished, calcute val loss
             val_loss = self.validate()
@@ -92,7 +92,7 @@ class Trainer(object):
             'scheduler_state_dict': self.lr_scheduler.state_dict()
         }
 
-        filename = join(self.args.log_dir, "{epoch:02d}-{val_loss:.4f}".format(
+        filename = join(self.args.log_dir, "epoch={epoch:02d}-val_loss={val_loss:.4f}.ckpt".format(
             epoch=self.epoch, val_loss=avg_loss))
 
         torch.save(checkpoint, filename)

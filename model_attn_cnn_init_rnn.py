@@ -94,7 +94,7 @@ class Im2LatexModel(nn.Module):
             model = models.densenet161(pretrained=False)
             self.cnn_encoder = torch.nn.Sequential(*(list(model.children())[0][:8]))
             emb_size_rnn_enc = 384
-            if not self.rnn_enc:
+            if not pos_enc == 'rnn_enc':
                 self.cnn_encoder = nn.Sequential(self.cnn_encoder,
                                                  nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
                                                 )
