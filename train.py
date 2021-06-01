@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from utils import collate_fn, build_vocab
 from data import Im2LatexDataset
-from model import Im2LatexModel  # check this
+from model_attn_cnn_init_rnn import Im2LatexModel  # check this
 from training import Trainer
 from make_vocab import make_vocab
 import wandb
