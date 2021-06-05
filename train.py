@@ -45,6 +45,8 @@ def main():
     parser.add_argument(
         "--cuda", action='store_true', default=True, help="Use cuda or not")
     parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--test_batch_size", type=int, default=1)
+    parser.add_argument("--test_beam_size", type=int, default=5)
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument(
         "--lr", type=float, default=0.001, help="Learning Rate")
@@ -83,7 +85,7 @@ def main():
     parser.add_argument(
         "--cnn",
         type=str,
-        default='stanford',
+        default='harvard',
         help="cnn model specification")
 
     parser.add_argument(
@@ -93,10 +95,10 @@ def main():
         help="attention type")
 
     parser.add_argument(
-        "--rnn_enc",
-        type=bool,
-        default=True,
-        help="rnn encoder after cnn")
+        "--pos_enc",
+        type=str,
+        default=None,
+        help="positional encoding after cnn encoder")
 
     parser.add_argument(
         "--dec_init",
@@ -133,11 +135,18 @@ def main():
         #pin_memory=True if use_cuda else False,
         num_workers=4)
 
+    test_loader = DataLoader(
+        Im2LatexDataset(args.data_path, 'test'),
+        batch_size=args.test_batch_size,
+        collate_fn=partial(collate_fn, vocab.sign2id),
+        # pin_memory=True if use_cuda else False,
+        num_workers=4)
+
     # construct model
     vocab_size = len(vocab)
     model = Im2LatexModel(vocab_size, args.emb_dim, args.enc_rnn_h,
                           args.dec_rnn_h, args.cnn, args.attn,
-                          args.rnn_enc, args.dec_init)
+                          args.pos_enc, args.dec_init)
 
     # construct optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -154,7 +163,7 @@ def main():
         global_step = 0
 
         if args.load_from_checkpoint:
-            checkpoint = torch.load(args.load_fr0m_checkpoint)
+            checkpoint = torch.load(args.load_from_checkpoint)
             model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
@@ -163,9 +172,11 @@ def main():
 
         model = model.to(device)
         # init trainer
-        trainer = Trainer(optimizer, model, lr_scheduler, train_loader, val_loader, args, epoch, global_step)
+        trainer = Trainer(optimizer, model, lr_scheduler, train_loader, val_loader, test_loader, args, epoch, global_step)
         # begin training
         trainer.train()
+
+        trainer.test(beam_size=args.test_beam_size)
 
 
 if __name__ == "__main__":

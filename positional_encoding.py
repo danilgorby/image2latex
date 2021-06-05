@@ -46,27 +46,54 @@ def positionalencoding2d(d_model, height, width):
     return pe
 
 
-class PositionalEncoding2d(torch.nn.Module):
-    def __init__(self, d_model):
+class PositionalEncoding2d(nn.Module):
+
+    def __init__(self, d_model, dropout=0, max_len=5000):
         super().__init__()
-        if d_model % 4 != 0:
-            raise ValueError("Cannot use sin/cos positional encoding with "
-                             "odd dimension (got dim={:d})".format(d_model))
-        self.d_model = d_model
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(d_model, max_len, max_len)
+        # Each dimension use half of d_model
+        d_model = d_model // 2
+
+        pos_w = torch.arange(0., max_len).unsqueeze(1)
+        pos_h = torch.arange(0., max_len).unsqueeze(1)
+
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[0:d_model:2, :, :] = torch.sin(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, max_len, 1)
+        pe[1:d_model:2, :, :] = torch.cos(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, max_len, 1)
+        pe[d_model::2, :, :] = torch.sin(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, max_len)
+        pe[d_model + 1::2, :, :] = torch.cos(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, max_len)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
 
     def forward(self, x):
         batch_size, d_model, height, width = x.size()
-        assert d_model == self.d_model
-        pe = torch.zeros(d_model, height, width)
-        # Each dimension use half of d_model
-        d_model = d_model // 2
-        div_term = torch.exp(torch.arange(0., d_model, 2) *
-                             -(math.log(10000.0) / d_model))
-        pos_w = torch.arange(0., width).unsqueeze(1)
-        pos_h = torch.arange(0., height).unsqueeze(1)
-        pe[0:d_model:2, :, :] = torch.sin(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, height, 1)
-        pe[1:d_model:2, :, :] = torch.cos(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, height, 1)
-        pe[d_model::2, :, :] = torch.sin(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, width)
-        pe[d_model + 1::2, :, :] = torch.cos(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, width)
-        pe = pe.unsqueeze(0).repeat(batch_size, 1, 1, 1)
-        return x + pe.detach  # is detach needed?
+        x = x + self.pe[:, :height, :width]
+        return self.dropout(x)
+
+
+# class PositionalEncoding2d(torch.nn.Module):
+#     def __init__(self, d_model):
+#         super().__init__()
+#         if d_model % 4 != 0:
+#             raise ValueError("Cannot use sin/cos positional encoding with "
+#                              "odd dimension (got dim={:d})".format(d_model))
+#         self.d_model = d_model
+#
+#     def forward(self, x):
+#         batch_size, d_model, height, width = x.size()
+#         assert d_model == self.d_model
+#         pe = torch.zeros(d_model, height, width)
+#         # Each dimension use half of d_model
+#         d_model = d_model // 2
+#         div_term = torch.exp(torch.arange(0., d_model, 2) *
+#                              -(math.log(10000.0) / d_model))
+#         pos_w = torch.arange(0., width).unsqueeze(1)
+#         pos_h = torch.arange(0., height).unsqueeze(1)
+#         pe[0:d_model:2, :, :] = torch.sin(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, height, 1)
+#         pe[1:d_model:2, :, :] = torch.cos(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, height, 1)
+#         pe[d_model::2, :, :] = torch.sin(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, width)
+#         pe[d_model + 1::2, :, :] = torch.cos(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, width)
+#         pe = pe.unsqueeze(0).repeat(batch_size, 1, 1, 1)
+#         return x + pe.detach  # is detach needed?

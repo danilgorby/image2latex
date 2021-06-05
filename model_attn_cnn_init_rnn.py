@@ -86,9 +86,6 @@ class Im2LatexModel(nn.Module):
                 self.cnn_encoder = nn.Sequential(self.cnn_encoder,
                                                  nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
                                                 )
-        elif cnn == 'stanford_variation':
-            pass  # TODO
-
         elif cnn == 'densenet1':
             # 2 blocks
             model = models.densenet161(pretrained=False)
@@ -107,6 +104,8 @@ class Im2LatexModel(nn.Module):
                 self.cnn_encoder = nn.Sequential(self.cnn_encoder,
                                                  nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
                                                 )
+        else:
+            raise ValueError('No such cnn architecture.')
 
         if pos_enc == 'rnn_enc':
             self.pos_encoder = nn.LSTM(emb_size_rnn_enc, enc_rnn_h,
@@ -222,6 +221,8 @@ class Im2LatexModel(nn.Module):
         elif self.attn == 2:
             context_t, attn_scores = self._get_CW_attn(enc_out, dec_states[0])  # [B, H, W, enc_rnn_h*2]
             context_t, attn_scores = self._get_SW_attn(context_t, dec_states[0]) # [B, enc_rnn_h*2]
+        else:
+            raise ValueError('possible values for attn are 0, 1, 2')
 
         O_t = self.W_c(torch.cat([h_t, context_t], dim=1)).tanh() # [B, enc_rnn_h]
 
@@ -284,7 +285,6 @@ class Im2LatexModel(nn.Module):
         attn_scores = alpha.unsqueeze(1).unsqueeze(1)
         context = attn_scores * enc_out  # [B, H, W, enc_rnn_h]
         return context, attn_scores
-
 
     def init_decoder(self, enc_out, hiddens):
         """args:
