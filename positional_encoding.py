@@ -1,5 +1,6 @@
 import math
 import torch
+import troch.nn as nn
 
 
 def positionalencoding1d(d_model, length):

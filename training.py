@@ -44,7 +44,7 @@ class Trainer(object):
                         self.epoch, self.step, total_step,
                         100 * self.step / total_step,
                         losses / self.args.print_freq
-                    ), end='')
+                    ))
                     losses = 0.0
             # one epoch Finished, calcute val loss
             val_loss = self.validate()
@@ -115,7 +115,7 @@ class Trainer(object):
             for imgs, tgt4training, tgt4cal_loss in self.test_loader:
                 imgs = imgs.to(self.args.device)
                 # tgt4training = tgt4training.to(self.args.device)
-                # tgt4cal_loss = tgt4cal_loss.to(self.args.device)
+                tgt4cal_loss = tgt4cal_loss.to(self.args.device)
                 if beam_size > 1:
                     pred_tokens = self._beam_search_decoding(imgs, beam_size)
                 else:
@@ -123,26 +123,28 @@ class Trainer(object):
                 batch_size = tgt4cal_loss.size(0)
                 if pred_tokens.size(0) != batch_size:
                     raise ValueError(f"Wrong batch size for prediction (expected: {batch_size}, actual: {pred_tokens.size(0)})")
-                gt_seq = [st.item() for st in tgt4cal_loss if st not in self._metric_skip_tokens]
-                pred_seq = [st.item() for st in pred_tokens if st not in self._metric_skip_tokens]
+                # print('TGT CAL LOSS SIZE:', tgt4cal_loss.size())
+                for example, pred in zip(tgt4cal_loss, pred_tokens):
+                      gt_seq = [st for st in example if st not in self._metric_skip_tokens]
+                      pred_seq = [st for st in pred if st not in self._metric_skip_tokens]
 
-                if len(gt_seq) == len(pred_seq) and all([g == p for g, p in zip(gt_seq, pred_seq)]):
-                    tp += len(gt_seq)
-                    continue
+                      if len(gt_seq) == len(pred_seq) and all([g == p for g, p in zip(gt_seq, pred_seq)]):
+                          tp += len(gt_seq)
+                          continue
 
-                for pred_subtoken in pred_seq:
-                    if pred_subtoken in gt_seq:
-                        tp += 1
-                    else:
-                        fp += 1
-                for gt_subtoken in gt_seq:
-                    if gt_subtoken not in pred_seq:
-                        fn += 1
+                      for pred_subtoken in pred_seq:
+                          if pred_subtoken in gt_seq:
+                              tp += 1
+                          else:
+                              fp += 1
+                      for gt_subtoken in gt_seq:
+                          if gt_subtoken not in pred_seq:
+                              fn += 1
 
             precision, recall, f1 = 0.0, 0.0, 0.0
             if tp + fp > 0:
                 precision = tp / (tp + fp)
-            if true_positive + false_negative > 0:
+            if tp + fn > 0:
                 recall = tp / (tp + fn)
             if precision + recall > 0:
                 f1 = 2 * precision * recall / (precision + recall)
@@ -155,13 +157,15 @@ class Trainer(object):
 
         batch_size, max_len = imgs.size()[:2]
         # storing decoding results
-        formulas_idx = torch.ones(batch_size, self.max_len).long() * PAD_TOKEN
+        formulas_idx = torch.ones(batch_size, max_len, dtype=torch.long,
+                                          device=self.args.device) * PAD_TOKEN
         # first decoding step's input
-        tgt = torch.ones(batch_size, 1).long() * START_TOKEN
-        for t in range(self.max_len):
-            dec_states, O_t, logit = self._model.step_decoding(
+        tgt = torch.ones(batch_size, 1, dtype=torch.long,
+                                        device=self.args.device) * START_TOKEN
+        for t in range(max_len):
+            dec_states, O_t, logit = self.model.step_decoding(
                 dec_states, O_t, enc_outs, tgt)
-            tgt = torch.argmax(logit, dim=1, keepdim=1)
+            tgt = torch.argmax(logit, dim=1, keepdim=True)
             formulas_idx[:, t:t + 1] = tgt
 
         return formulas_idx
@@ -176,10 +180,10 @@ class Trainer(object):
         new_B = imgs.size(0)
         # first decoding step's input
         tgt = torch.ones(new_B, 1).long() * START_TOKEN
-        beam = BeamSearch(beam_size, B)
+        beam = BeamSearch(beam_size, B, self.args.device)
         for t in range(max_len):
             tgt = beam.current_predictions.unsqueeze(1)
-            dec_states, O_t, probs = self.step_decoding(
+            dec_states, O_t, probs = self.model.step_decoding(
                 dec_states, O_t, enc_outs, tgt)
             log_probs = torch.log(probs)
 

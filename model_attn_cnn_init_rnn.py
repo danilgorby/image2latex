@@ -82,7 +82,7 @@ class Im2LatexModel(nn.Module):
                 nn.MaxPool2d((2, 2), (2, 2), (1, 1))
             )
             emb_size_rnn_enc = 64
-            if not self.rnn_enc:
+            if pos_enc != 'rnn_enc':
                 self.cnn_encoder = nn.Sequential(self.cnn_encoder,
                                                  nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
                                                 )
@@ -91,7 +91,7 @@ class Im2LatexModel(nn.Module):
             model = models.densenet161(pretrained=False)
             self.cnn_encoder = torch.nn.Sequential(*(list(model.children())[0][:8]))
             emb_size_rnn_enc = 384
-            if not pos_enc == 'rnn_enc':
+            if pos_enc != 'rnn_enc':
                 self.cnn_encoder = nn.Sequential(self.cnn_encoder,
                                                  nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
                                                 )
@@ -100,7 +100,7 @@ class Im2LatexModel(nn.Module):
             model = models.densenet161(pretrained=False)
             self.cnn_encoder = torch.nn.Sequential(*(list(model.children())[0][:-2]))
             emb_size_rnn_enc = 1056
-            if not self.rnn_enc:
+            if pos_enc != 'rnn_enc':
                 self.cnn_encoder = nn.Sequential(self.cnn_encoder,
                                                  nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
                                                 )
@@ -119,7 +119,7 @@ class Im2LatexModel(nn.Module):
             init.uniform_(self.V_c_0, -INIT, INIT)
         elif pos_enc == 'spacial2d_enc':
             self.pos_encoder = PositionalEncoding2d(512)  # выглядит как хардкодинг, надо все как-то в переменную типа out_cahnnels завернуть
-        elif pos_enc is None:
+        elif pos_enc == 'none':
             self.pos_encoder = None
         else:
             raise ValueError(f'There is no {pos_enc} positional encoding options. Possible positional encoding options'
@@ -298,12 +298,14 @@ class Im2LatexModel(nn.Module):
 
         h, c = hiddens
         B, H, _, _ = enc_out.shape
+        device = enc_out.device
         if h is None:
             # no rnn enc
             if self.dec_init == 0:
                 # zero init
                 h = torch.zeros(B, self.dec_rnn_h)  # h_0
                 c = torch.zeros(B, self.dec_rnn_h)  # c_0
+                h, c = h.to(device), c.to(device)
             elif self.dec_init == 1:
                 # non-zero init (может можно по-другому)
                 v = enc_out.mean(dim=[1, 2])

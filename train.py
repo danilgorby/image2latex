@@ -97,7 +97,7 @@ def main():
     parser.add_argument(
         "--pos_enc",
         type=str,
-        default=None,
+        default='none',
         help="positional encoding after cnn encoder")
 
     parser.add_argument(
