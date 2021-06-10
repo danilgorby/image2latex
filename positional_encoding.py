@@ -49,23 +49,27 @@ def positionalencoding2d(d_model, height, width):
 
 class PositionalEncoding2d(nn.Module):
 
-    def __init__(self, d_model, dropout=0, max_len=5000):
+    def __init__(self, d_model, dropout=0, max_len=100):
         super().__init__()
+
+        assert d_model % 4 == 0, "d_model must be devisible by 4"
+
         self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(d_model, max_len, max_len)
-        # Each dimension use half of d_model
-        d_model = d_model // 2
+        with torch.no_grad():
+            pe = torch.zeros(d_model, max_len, max_len)
+            # Each dimension use half of d_model
+            d_model = d_model // 2
 
-        pos_w = torch.arange(0., max_len).unsqueeze(1)
-        pos_h = torch.arange(0., max_len).unsqueeze(1)
+            pos_w = torch.arange(0., max_len).unsqueeze(1)
+            pos_h = torch.arange(0., max_len).unsqueeze(1)
 
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[0:d_model:2, :, :] = torch.sin(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, max_len, 1)
-        pe[1:d_model:2, :, :] = torch.cos(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, max_len, 1)
-        pe[d_model::2, :, :] = torch.sin(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, max_len)
-        pe[d_model + 1::2, :, :] = torch.cos(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, max_len)
-        pe = pe.unsqueeze(0)
+            div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+            pe[0:d_model:2, :, :] = torch.sin(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, max_len, 1)
+            pe[1:d_model:2, :, :] = torch.cos(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, max_len, 1)
+            pe[d_model::2, :, :] = torch.sin(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, max_len)
+            pe[d_model + 1::2, :, :] = torch.cos(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, max_len)
+
         self.register_buffer('pe', pe)
 
     def forward(self, x):
