@@ -108,7 +108,7 @@ def main():
 
     parser.add_argument(
         "--max_len",
-        dtype=int,
+        type=int,
         default=50,
         help="max predicted sequence length"
     )
