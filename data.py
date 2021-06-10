@@ -19,7 +19,10 @@ class Im2LatexDataset(Dataset):
         self.pairs = self._get_pairs(split)
 
     def __getitem__(self, index):
-        return self.pairs[index]
+        img_path, formula = self.pairs[index]
+        img = Image.open(img_path)
+        img_tensor = self.transform(img)
+        return img_tensor, formula
 
     def __len__(self):
         return len(self.pairs)
@@ -40,15 +43,15 @@ class Im2LatexDataset(Dataset):
                 img_name, formula_id = line.strip('\n').split()
                 # load img and its corresponding formula
                 img_path = join(self.images_dir, img_name)
-                img = Image.open(img_path)
-                img_tensor = self.transform(img)
+
                 formula = self.formulas[int(formula_id)]
-                pair = (img_tensor, formula)
+                pair = (img_path, formula)
                 pairs.append(pair)
-        pairs.sort(key=img_size)
+        # pairs.sort(key=img_size)
         return pairs
 
 
 def img_size(pair):
     img, formula = pair
     return tuple(img.size())
+
