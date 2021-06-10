@@ -155,7 +155,9 @@ class Trainer(object):
         enc_outs, hiddens = self.model.encode(imgs)
         dec_states, O_t = self.model.init_decoder(enc_outs, hiddens)
 
-        batch_size, max_len = imgs.size()[:2]
+        batch_size = imgs.size(0)
+        max_len = self.args.max_len
+
         # storing decoding results
         formulas_idx = torch.ones(batch_size, max_len, dtype=torch.long,
                                           device=self.args.device) * PAD_TOKEN
@@ -171,7 +173,8 @@ class Trainer(object):
         return formulas_idx
 
     def _beam_search_decoding(self, imgs, beam_size):
-        B, max_len = imgs.size()[:2]
+        B = imgs.size(0)
+        max_len = self.args.max_len
         # use batch_size*beam_size as new Batch
         imgs = tile(imgs, beam_size, dim=0)
         enc_outs, hiddens = self.model.encode(imgs)

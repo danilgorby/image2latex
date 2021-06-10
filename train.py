@@ -106,6 +106,13 @@ def main():
         default=0,
         help="decoder hidden states initialization")
 
+    parser.add_argument(
+        "--max_len",
+        dtype=int,
+        default=50,
+        help="max predicted sequence length"
+    )
+
     wandb.login()
 
     args = parser.parse_args()
