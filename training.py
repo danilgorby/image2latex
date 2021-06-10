@@ -4,25 +4,31 @@ import torch
 import torch.nn.functional as F
 from torch.nn.utils import clip_grad_norm_
 
-from make_vocab import PAD_TOKEN
+from make_vocab import PAD_TOKEN, START_TOKEN, END_TOKEN
+from beam_search import BeamSearch
+from utils import tile
+import wandb
 
 
 class Trainer(object):
     def __init__(self, optimizer, model, lr_scheduler,
-                 train_loader, val_loader, args):
+                 train_loader, val_loader, test_loader, args, start_epoch=0, global_step=0):
 
         self.optimizer = optimizer
         self.model = model
         self.lr_scheduler = lr_scheduler
         self.train_loader = train_loader
         self.val_loader = val_loader
+        self.test_loader = test_loader
         self.args = args
 
-        self.step = 0
-        self.epoch = 1
+        self.step = global_step
+        self.epoch = start_epoch
         self.best_val_loss = 1e18
+        self._metric_skip_tokens = [PAD_TOKEN, START_TOKEN, END_TOKEN]
 
     def train(self):
+        wandb.watch(self.model)
         while self.epoch <= self.args.epochs:
             self.model.train()
             losses = 0.0
@@ -33,6 +39,7 @@ class Trainer(object):
                 # log message
                 if self.step % self.args.print_freq == 0:
                     total_step = len(self.train_loader)
+                    wandb.log({"epoch": self.epoch, "loss": losses / self.args.print_freq})
                     print("Epoch {}, step:{}/{} {:.2f}%, Loss:{:.4f}".format(
                         self.epoch, self.step, total_step,
                         100 * self.step / total_step,
@@ -76,13 +83,130 @@ class Trainer(object):
                 loss = self.cal_loss(logits, tgt4cal_loss)
                 val_total_loss += loss
             avg_loss = val_total_loss / len(self.val_loader)
+            wandb.log({"epoch:": self.epoch, "val_avg_loss": avg_loss})
             print("Epoch {}, validation average loss: {:.4f}".format(
                 self.epoch, avg_loss
             ))
+
+        checkpoint = {
+            'epoch': self.epoch,
+            'global_step': self.step,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.lr_scheduler.state_dict()
+        }
+
+        filename = join(self.args.log_dir, "epoch={epoch:02d}-val_loss={val_loss:.4f}.ckpt".format(
+            epoch=self.epoch, val_loss=avg_loss))
+
+        torch.save(checkpoint, filename)
+
+        wandb.save(filename)
+
         if avg_loss < self.best_val_loss:
             self.best_val_loss = avg_loss
             self.save_model()
         return avg_loss
+
+    def test(self, beam_size=1):
+        self.model.eval()
+        tp, fp, fn = 0, 0, 0
+        with torch.no_grad():
+            for imgs, tgt4training, tgt4cal_loss in self.test_loader:
+                imgs = imgs.to(self.args.device)
+                # tgt4training = tgt4training.to(self.args.device)
+                tgt4cal_loss = tgt4cal_loss.to(self.args.device)
+                if beam_size > 1:
+                    pred_tokens = self._beam_search_decoding(imgs, beam_size)
+                else:
+                    pred_tokens = self._greedy_decoding(imgs)
+                batch_size = tgt4cal_loss.size(0)
+                if pred_tokens.size(0) != batch_size:
+                    raise ValueError(f"Wrong batch size for prediction (expected: {batch_size}, actual: {pred_tokens.size(0)})")
+                # print('TGT CAL LOSS SIZE:', tgt4cal_loss.size())
+                for example, pred in zip(tgt4cal_loss, pred_tokens):
+                      gt_seq = [st for st in example if st not in self._metric_skip_tokens]
+                      pred_seq = [st for st in pred if st not in self._metric_skip_tokens]
+
+                      if len(gt_seq) == len(pred_seq) and all([g == p for g, p in zip(gt_seq, pred_seq)]):
+                          tp += len(gt_seq)
+                          continue
+
+                      for pred_subtoken in pred_seq:
+                          if pred_subtoken in gt_seq:
+                              tp += 1
+                          else:
+                              fp += 1
+                      for gt_subtoken in gt_seq:
+                          if gt_subtoken not in pred_seq:
+                              fn += 1
+
+            precision, recall, f1 = 0.0, 0.0, 0.0
+            if tp + fp > 0:
+                precision = tp / (tp + fp)
+            if tp + fn > 0:
+                recall = tp / (tp + fn)
+            if precision + recall > 0:
+                f1 = 2 * precision * recall / (precision + recall)
+            wandb.log({"test precision": precision, "test recall": recall, "test f1": f1})
+            print(f'test precision: {precision}, test recall: {recall}, test f1: {f1}')
+
+    def _greedy_decoding(self, imgs):
+        enc_outs, hiddens = self.model.encode(imgs)
+        dec_states, O_t = self.model.init_decoder(enc_outs, hiddens)
+
+        batch_size, max_len = imgs.size()[:2]
+        # storing decoding results
+        formulas_idx = torch.ones(batch_size, max_len, dtype=torch.long,
+                                          device=self.args.device) * PAD_TOKEN
+        # first decoding step's input
+        tgt = torch.ones(batch_size, 1, dtype=torch.long,
+                                        device=self.args.device) * START_TOKEN
+        for t in range(max_len):
+            dec_states, O_t, logit = self.model.step_decoding(
+                dec_states, O_t, enc_outs, tgt)
+            tgt = torch.argmax(logit, dim=1, keepdim=True)
+            formulas_idx[:, t:t + 1] = tgt
+
+        return formulas_idx
+
+    def _beam_search_decoding(self, imgs, beam_size):
+        B, max_len = imgs.size()[:2]
+        # use batch_size*beam_size as new Batch
+        imgs = tile(imgs, beam_size, dim=0)
+        enc_outs, hiddens = self.model.encode(imgs)
+        dec_states, O_t = self.model.init_decoder(enc_outs, hiddens)
+
+        new_B = imgs.size(0)
+        # first decoding step's input
+        tgt = torch.ones(new_B, 1).long() * START_TOKEN
+        beam = BeamSearch(beam_size, B, self.args.device)
+        for t in range(max_len):
+            tgt = beam.current_predictions.unsqueeze(1)
+            dec_states, O_t, probs = self.model.step_decoding(
+                dec_states, O_t, enc_outs, tgt)
+            log_probs = torch.log(probs)
+
+            beam.advance(log_probs)
+            any_beam_is_finished = beam.is_finished.any()
+            if any_beam_is_finished:
+                beam.update_finished()
+                if beam.done:
+                    break
+
+            select_indices = beam.current_origin
+            if any_beam_is_finished:
+                # Reorder states
+                h, c = dec_states
+                h = h.index_select(0, select_indices)
+                c = c.index_select(0, select_indices)
+                dec_states = (h, c)
+                O_t = O_t.index_select(0, select_indices)
+        # get results
+        formulas_idx = torch.stack([hyps[1] for hyps in beam.hypotheses],
+                                   dim=0)
+
+        return formulas_idx
 
     def cal_loss(self, logits, targets):
         """args:
@@ -109,5 +233,5 @@ class Trainer(object):
         print("Saving as best model...")
         torch.save(
             self.model.state_dict(),
-            join(self.args.save_dir, 'best_ckpt')
+            join(self.args.log_dir, 'best.pkl')
         )

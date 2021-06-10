@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import init
 import torchvision.models as models
+from positional_encoding import PositionalEncoding2d
 
 INIT = 1e-2
 
@@ -21,13 +22,13 @@ INIT = 1e-2
 class Im2LatexModel(nn.Module):
     def __init__(self, out_size, emb_size,
                  enc_rnn_h, dec_rnn_h,
-                 cnn, attn, rnn_enc, dec_init,
-                 n_layer=1):
+                 cnn, attn, dec_init,
+                 pos_enc=None, n_layer=1):
 
         super(Im2LatexModel, self).__init__()
 
-        self.rnn_enc = rnn_enc
         self.dec_rnn_h = dec_rnn_h
+        self.pos_enc = pos_enc
 
         if cnn == 'stanford':
             self.cnn_encoder = nn.Sequential(
@@ -81,17 +82,16 @@ class Im2LatexModel(nn.Module):
                 nn.MaxPool2d((2, 2), (2, 2), (1, 1))
             )
             emb_size_rnn_enc = 64
-            if not self.rnn_enc:
+            if pos_enc != 'rnn_enc':
                 self.cnn_encoder = nn.Sequential(self.cnn_encoder,
                                                  nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
                                                 )
-
         elif cnn == 'densenet1':
             # 2 blocks
             model = models.densenet161(pretrained=False)
             self.cnn_encoder = torch.nn.Sequential(*(list(model.children())[0][:8]))
             emb_size_rnn_enc = 384
-            if not self.rnn_enc:
+            if pos_enc != 'rnn_enc':
                 self.cnn_encoder = nn.Sequential(self.cnn_encoder,
                                                  nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
                                                 )
@@ -100,13 +100,15 @@ class Im2LatexModel(nn.Module):
             model = models.densenet161(pretrained=False)
             self.cnn_encoder = torch.nn.Sequential(*(list(model.children())[0][:-2]))
             emb_size_rnn_enc = 1056
-            if not self.rnn_enc:
+            if pos_enc != 'rnn_enc':
                 self.cnn_encoder = nn.Sequential(self.cnn_encoder,
                                                  nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
                                                 )
+        else:
+            raise ValueError('No such cnn architecture.')
 
-        if rnn_enc:
-            self.rnn_encoder = nn.LSTM(emb_size_rnn_enc, enc_rnn_h,
+        if pos_enc == 'rnn_enc':
+            self.pos_encoder = nn.LSTM(emb_size_rnn_enc, enc_rnn_h,
                                        bidirectional=True,
                                        batch_first=True)
 
@@ -115,6 +117,13 @@ class Im2LatexModel(nn.Module):
             self.V_c_0 = nn.Parameter(torch.Tensor(n_layer * 2, enc_rnn_h))
             init.uniform_(self.V_h_0, -INIT, INIT)
             init.uniform_(self.V_c_0, -INIT, INIT)
+        elif pos_enc == 'spacial2d_enc':
+            self.pos_encoder = PositionalEncoding2d(512)  # выглядит как хардкодинг, надо все как-то в переменную типа out_cahnnels завернуть
+        elif pos_enc == 'none':
+            self.pos_encoder = None
+        else:
+            raise ValueError(f'There is no {pos_enc} positional encoding options. Possible positional encoding options'
+                             f'are: rnn_enc, spacial2d_enc, None')
 
         self.rnn_decoder = nn.LSTMCell(enc_rnn_h+emb_size, dec_rnn_h)
         self.embedding = nn.Embedding(out_size, emb_size)
@@ -142,7 +151,6 @@ class Im2LatexModel(nn.Module):
             self.dec_rnn_h = dec_rnn_h
             self.W_h0 = nn.Linear(512, dec_rnn_h) # !!!
             self.W_c0 = nn.Linear(512, dec_rnn_h) # emb_size_rnn_enc
-
 
     def forward(self, imgs, formulas):
         """args:
@@ -175,7 +183,7 @@ class Im2LatexModel(nn.Module):
 
         (h, c) = (None, None)
         B, H, W, out_channels = encoded_imgs.size()
-        if self.rnn_enc:
+        if self.pos_enc == 'rnn_enc':
             # Prepare data for Row Encoder
             # poccess data like a new big batch
             encoded_imgs = encoded_imgs.contiguous().view(B*H, W, out_channels)
@@ -187,13 +195,15 @@ class Im2LatexModel(nn.Module):
             init_hidden = (init_hidden_h, init_hidden_c)
 
             # Row Encoder
-            row_enc_out, (h, c) = self.rnn_encoder(encoded_imgs, init_hidden)
+            row_enc_out, (h, c) = self.pos_encoder(encoded_imgs, init_hidden)
             # row_enc_out [B*H, W, enc_rnn_h]
             # hidden: [2, B*H, enc_rnn_h]
             row_enc_out = row_enc_out.view(B, H, W, -1)  # [B, H, W, enc_rnn_h]
             h, c = h.view(2, B, H, -1), c.view(2, B, H, -1)
             return row_enc_out, (h, c)
         else:
+            if self.pos_enc == 'spatial2d_enc':
+                encoded_imgs = self.pos_encoder(encoded_imgs)
             encoded_imgs = encoded_imgs.view(B, H, W, -1)  # [B, H, W, enc_rnn_h*2]
             return encoded_imgs, (h, c)
 
@@ -211,6 +221,8 @@ class Im2LatexModel(nn.Module):
         elif self.attn == 2:
             context_t, attn_scores = self._get_CW_attn(enc_out, dec_states[0])  # [B, H, W, enc_rnn_h*2]
             context_t, attn_scores = self._get_SW_attn(context_t, dec_states[0]) # [B, enc_rnn_h*2]
+        else:
+            raise ValueError('possible values for attn are 0, 1, 2')
 
         O_t = self.W_c(torch.cat([h_t, context_t], dim=1)).tanh() # [B, enc_rnn_h]
 
@@ -274,7 +286,6 @@ class Im2LatexModel(nn.Module):
         context = attn_scores * enc_out  # [B, H, W, enc_rnn_h]
         return context, attn_scores
 
-
     def init_decoder(self, enc_out, hiddens):
         """args:
             enc_out: the output of row encoder [B, H, W, enc_rnn_h]
@@ -287,12 +298,14 @@ class Im2LatexModel(nn.Module):
 
         h, c = hiddens
         B, H, _, _ = enc_out.shape
+        device = enc_out.device
         if h is None:
             # no rnn enc
             if self.dec_init == 0:
                 # zero init
                 h = torch.zeros(B, self.dec_rnn_h)  # h_0
                 c = torch.zeros(B, self.dec_rnn_h)  # c_0
+                h, c = h.to(device), c.to(device)
             elif self.dec_init == 1:
                 # non-zero init (может можно по-другому)
                 v = enc_out.mean(dim=[1, 2])
