@@ -6,6 +6,7 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch_optimizer import RAdam
 
 from utils import collate_fn, build_vocab
 from data import Im2LatexDataset
@@ -13,7 +14,6 @@ from model_attn_cnn_init_rnn import Im2LatexModel  # check this
 from training import Trainer
 from make_vocab import make_vocab
 import wandb
-from datetime import datetime
 import os
 
 
@@ -48,6 +48,7 @@ def main():
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument("--test_beam_size", type=int, default=5)
     parser.add_argument("--epochs", type=int, default=12)
+    parser.add_argument("--opt", type=str, default='RAdam')
     parser.add_argument(
         "--lr", type=float, default=0.001, help="Learning Rate")
     parser.add_argument(
@@ -64,6 +65,7 @@ def main():
         type=str,
         default=f'./checkpoints/',
         help="The dir to save checkpoints")
+    
     parser.add_argument(
         "--load_from_checkpoint",
         type=str,
@@ -75,6 +77,7 @@ def main():
         type=str,
         default="./sample_data/vocab.pkl",
         help="The path to vocab file")
+
     parser.add_argument(
         "--print_freq",
         type=int,
@@ -152,11 +155,17 @@ def main():
     # construct model
     vocab_size = len(vocab)
     model = Im2LatexModel(vocab_size, args.emb_dim, args.enc_rnn_h,
-                          args.dec_rnn_h, args.cnn, args.attn, args.dec_init,
-                          args.pos_enc)
+                          args.dec_rnn_h, args.cnn, args.attn,
+                          args.pos_enc, args.dec_init)
 
     # construct optimizer
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    if args.opt == 'RAdam':
+        optimizer = RAdam(model.parameters(), lr=args.lr)
+    elif args.opt == 'Adam':
+        optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    else:
+        raise ValueError(f"Unknown optimizer: {args.opt}")
+
     lr_scheduler = ReduceLROnPlateau(
         optimizer,
         "min",
