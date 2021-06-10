@@ -145,8 +145,8 @@ def main():
     # construct model
     vocab_size = len(vocab)
     model = Im2LatexModel(vocab_size, args.emb_dim, args.enc_rnn_h,
-                          args.dec_rnn_h, args.cnn, args.attn,
-                          args.pos_enc, args.dec_init)
+                          args.dec_rnn_h, args.cnn, args.attn, args.dec_init,
+                          args.pos_enc)
 
     # construct optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
