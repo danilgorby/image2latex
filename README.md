@@ -49,9 +49,9 @@
 ![loss](./imgs/train_loss.png)
 
 <p float="left">
-  <img src="./imgs/test_precision.png" alt="precision" width="100"/>
-  <img src="./imgs/test_recall.png" alt="recall" width="100"/>
-  <img src="./imgs/test_f1.png" alt="f1" width="100"/>
+  <img src="./imgs/test_precision.png" alt="precision" width="300"/>
+  <img src="./imgs/test_recall.png" alt="recall" width="300"/>
+  <img src="./imgs/test_f1.png" alt="f1" width="300"/>
 </p>
 
 Графики:
