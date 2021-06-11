@@ -48,6 +48,8 @@
 
 ![loss](./imgs/train_loss.png)
 
+![test_precision](./imgs/test_precision.png)    ![test_recall](./imgs/test_recall.png)  ![test_f1](./imgs/test_f1.png)
+
 Графики:
 
 1. harvard cnn + Adam + decoder initialization with 0
