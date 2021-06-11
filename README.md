@@ -48,7 +48,11 @@
 
 ![loss](./imgs/train_loss.png)
 
-![test_precision](./imgs/test_precision.png)    ![test_recall](./imgs/test_recall.png)  ![test_f1](./imgs/test_f1.png)
+<ul>
+    <li><img src="./imgs/test_precision.png" alt="precision" width="50"/></li>
+    <li><img src="./imgs/test_recall.png" alt="recall" width="50"></li>
+    <li><img src="./imgs/test_f1.png" alt="f1" width="50"></li>
+</ul>
 
 Графики:
 
