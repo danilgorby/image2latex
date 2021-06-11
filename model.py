@@ -1,14 +1,3 @@
-"""
-cnn: stanford, harvard, densenet1, densenet2
-
-rnn_enc: bool
-
-if rnn_enc is False:
-    dec_init = 0, 1 # decoder hidden states init
-
-attn: 0, 1, 2
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
