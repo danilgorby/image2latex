@@ -1,43 +1,129 @@
+"""
+cnn: stanford, harvard, densenet1, densenet2
+
+rnn_enc: bool
+
+if rnn_enc is False:
+    dec_init = 0, 1 # decoder hidden states init
+
+attn: 0, 1, 2
+"""
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import init
+import torchvision.models as models
+from positional_encoding import PositionalEncoding2d
 
 INIT = 1e-2
 
 
 class Im2LatexModel(nn.Module):
     def __init__(self, out_size, emb_size,
-                 enc_rnn_h, dec_rnn_h, n_layer=1):
+                 enc_rnn_h, dec_rnn_h,
+                 cnn, attn, pos_enc,
+                 dec_init, n_layer=1):
+
         super(Im2LatexModel, self).__init__()
 
-        # follow the original paper's table2: CNN specification
-        self.cnn_encoder = nn.Sequential(
-            nn.Conv2d(3, 512, 3, 1, 0),
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-            nn.Conv2d(512, 512, 3, 1, 1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-            nn.MaxPool2d((1, 2), (1, 2), (0, 0)),
-            nn.Conv2d(512, 256, 3, 1, 1),
-            nn.ReLU(),
-            nn.MaxPool2d((2, 1), (2, 1), (0, 0)),
-            nn.Conv2d(256, 256, 3, 1, 1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.Conv2d(256, 128, 3, 1, 1),
-            nn.ReLU(),
-            nn.MaxPool2d((2, 2), (2, 2), (0, 0)),
-            nn.Conv2d(128, 64, 3, 1, 1),
-            nn.ReLU(),
-            nn.MaxPool2d((2, 2), (2, 2), (1, 1))
-        )
+        self.dec_rnn_h = dec_rnn_h
+        self.pos_enc = pos_enc
 
-        self.rnn_encoder = nn.LSTM(64, enc_rnn_h,
-                                   bidirectional=True,
-                                   batch_first=True)
+        if cnn == 'stanford':
+            self.cnn_encoder = nn.Sequential(
+                nn.Conv2d(3, 64, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d((2, 2), (2, 2), (0, 0)),
+
+                nn.Conv2d(64, 128, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d((2, 2), (2, 2), (0, 0)),
+
+                nn.Conv2d(128, 256, 3, 1, 1),
+                nn.ReLU(),
+
+                nn.Conv2d(256, 256, 3, 1, 1),
+                nn.ReLU(),
+
+                # vanilla
+                nn.MaxPool2d((2, 1), (2, 1), (0, 0)),
+
+                nn.Conv2d(256, 512, 3, 1, 1),
+                nn.ReLU(),
+
+                # vanilla
+                nn.MaxPool2d((1, 2), (1, 2), (0, 0)),
+
+                nn.Conv2d(512, 512, 3, 1, 0),
+                nn.ReLU()
+            )
+            emb_size_rnn_enc = 512
+        elif cnn == 'harvard':
+            self.cnn_encoder = nn.Sequential(
+                nn.Conv2d(3, 512, 3, 1, 0),
+                nn.BatchNorm2d(512),
+                nn.ReLU(),
+                nn.Conv2d(512, 512, 3, 1, 1),
+                nn.BatchNorm2d(512),
+                nn.ReLU(),
+                nn.MaxPool2d((1, 2), (1, 2), (0, 0)),
+                nn.Conv2d(512, 256, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d((2, 1), (2, 1), (0, 0)),
+                nn.Conv2d(256, 256, 3, 1, 1),
+                nn.BatchNorm2d(256),
+                nn.ReLU(),
+                nn.Conv2d(256, 128, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d((2, 2), (2, 2), (0, 0)),
+                nn.Conv2d(128, 64, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d((2, 2), (2, 2), (1, 1))
+            )
+            emb_size_rnn_enc = 64
+            if pos_enc != 'rnn_enc':
+                self.cnn_encoder = nn.Sequential(self.cnn_encoder,
+                                                 nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
+                                                )
+        elif cnn == 'densenet1':
+            # 2 blocks
+            model = models.densenet161(pretrained=False)
+            self.cnn_encoder = torch.nn.Sequential(*(list(model.children())[0][:8]))
+            emb_size_rnn_enc = 384
+            if pos_enc != 'rnn_enc':
+                self.cnn_encoder = nn.Sequential(self.cnn_encoder,
+                                                 nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
+                                                )
+        elif cnn == 'densenet2':
+            # 3 blocks
+            model = models.densenet161(pretrained=False)
+            self.cnn_encoder = torch.nn.Sequential(*(list(model.children())[0][:-2]))
+            emb_size_rnn_enc = 1056
+            if pos_enc != 'rnn_enc':
+                self.cnn_encoder = nn.Sequential(self.cnn_encoder,
+                                                 nn.Conv2d(emb_size_rnn_enc, 512, 1, 1, 0)
+                                                )
+        else:
+            raise ValueError('No such cnn architecture.')
+
+        if pos_enc == 'rnn_enc':
+            self.pos_encoder = nn.LSTM(emb_size_rnn_enc, enc_rnn_h,
+                                       bidirectional=True,
+                                       batch_first=True)
+
+            # a trainable initial hidden state V_h_0 for each row
+            self.V_h_0 = nn.Parameter(torch.Tensor(n_layer * 2, enc_rnn_h))
+            self.V_c_0 = nn.Parameter(torch.Tensor(n_layer * 2, enc_rnn_h))
+            init.uniform_(self.V_h_0, -INIT, INIT)
+            init.uniform_(self.V_c_0, -INIT, INIT)
+        elif pos_enc == 'spacial2d_enc':
+            self.pos_encoder = PositionalEncoding2d(512)  # выглядит как хардкодинг, надо все как-то в переменную типа out_cahnnels завернуть
+        elif pos_enc == 'none':
+            self.pos_encoder = None
+        else:
+            raise ValueError(f'There is no {pos_enc} positional encoding options. Possible positional encoding options'
+                             f'are: rnn_enc, spacial2d_enc, None')
 
         self.rnn_decoder = nn.LSTMCell(enc_rnn_h+emb_size, dec_rnn_h)
         self.embedding = nn.Embedding(out_size, emb_size)
@@ -46,17 +132,25 @@ class Im2LatexModel(nn.Module):
         self.W_c = nn.Linear(dec_rnn_h+2*enc_rnn_h, enc_rnn_h)
         self.W_out = nn.Linear(enc_rnn_h, out_size)
 
-        # a trainable initial hidden state V_h_0 for each row
-        self.V_h_0 = nn.Parameter(torch.Tensor(n_layer*2, enc_rnn_h))
-        self.V_c_0 = nn.Parameter(torch.Tensor(n_layer*2, enc_rnn_h))
-        init.uniform_(self.V_h_0, -INIT, INIT)
-        init.uniform_(self.V_c_0, -INIT, INIT)
-
         # Attention mechanism
-        self.beta = nn.Parameter(torch.Tensor(dec_rnn_h))
-        init.uniform_(self.beta, -INIT, INIT)
-        self.W_h = nn.Linear(dec_rnn_h, dec_rnn_h)
-        self.W_v = nn.Linear(enc_rnn_h*2, dec_rnn_h)
+        self.attn = attn
+        if attn > 0:
+            self.beta_SW = nn.Parameter(torch.Tensor(dec_rnn_h))
+            init.uniform_(self.beta_SW, -INIT, INIT)
+            self.W_h_SW = nn.Linear(dec_rnn_h, dec_rnn_h) # bias=False?
+            self.W_v_SW = nn.Linear(enc_rnn_h*2, dec_rnn_h)
+            if attn == 2:
+                self.beta_CW = nn.Parameter(torch.Tensor(dec_rnn_h))
+                init.uniform_(self.beta_CW, -INIT, INIT)
+                self.W_h_CW = nn.Linear(dec_rnn_h, dec_rnn_h) # bias=False?
+                self.W_v_CW = nn.Linear(enc_rnn_h*2, dec_rnn_h)
+
+        self.dec_init = dec_init
+        if dec_init == 1:
+            # dec hidden state init
+            self.dec_rnn_h = dec_rnn_h
+            self.W_h0 = nn.Linear(512, dec_rnn_h) # !!!
+            self.W_c0 = nn.Linear(512, dec_rnn_h) # emb_size_rnn_enc
 
     def forward(self, imgs, formulas):
         """args:
@@ -66,10 +160,12 @@ class Im2LatexModel(nn.Module):
         return:
         logits: [B, MAX_LEN, VOCAB_SIZE]
         """
+
         # encoding
-        row_enc_out, hiddens = self.encode(imgs)
+        row_enc_out, hiddens = self.encode(imgs)  # [B, H', W', 512]
         # init decoder's states
         dec_states, O_t = self.init_decoder(row_enc_out, hiddens)
+
         max_len = formulas.size(1)
         logits = []
         for t in range(max_len):
@@ -85,25 +181,31 @@ class Im2LatexModel(nn.Module):
         encoded_imgs = self.cnn_encoder(imgs)  # [B, 64, H', W']
         encoded_imgs = encoded_imgs.permute(0, 2, 3, 1)  # [B, H', W', 64]
 
-        # Prepare data for Row Encoder
-        # poccess data like a new big batch
+        (h, c) = (None, None)
         B, H, W, out_channels = encoded_imgs.size()
-        encoded_imgs = encoded_imgs.contiguous().view(B*H, W, out_channels)
-        # prepare init hidden for each row
-        init_hidden_h = self.V_h_0.unsqueeze(
-            1).expand(-1, B*H, -1).contiguous()
-        init_hidden_c = self.V_c_0.unsqueeze(
-            1).expand(-1, B*H, -1).contiguous()
-        init_hidden = (init_hidden_h, init_hidden_c)
+        if self.pos_enc == 'rnn_enc':
+            # Prepare data for Row Encoder
+            # poccess data like a new big batch
+            encoded_imgs = encoded_imgs.contiguous().view(B*H, W, out_channels)
+            # prepare init hidden for each row
+            init_hidden_h = self.V_h_0.unsqueeze(
+                1).expand(-1, B*H, -1).contiguous()
+            init_hidden_c = self.V_c_0.unsqueeze(
+                1).expand(-1, B*H, -1).contiguous()
+            init_hidden = (init_hidden_h, init_hidden_c)
 
-        # Row Encoder
-        row_enc_out, (h, c) = self.rnn_encoder(encoded_imgs, init_hidden)
-        # row_enc_out [B*H, W, enc_rnn_h]
-        # hidden: [2, B*H, enc_rnn_h]
-        row_enc_out = row_enc_out.view(B, H, W, -1)  # [B, H, W, enc_rnn_h]
-        h, c = h.view(2, B, H, -1), c.view(2, B, H, -1)
-
-        return row_enc_out, (h, c)
+            # Row Encoder
+            row_enc_out, (h, c) = self.pos_encoder(encoded_imgs, init_hidden)
+            # row_enc_out [B*H, W, enc_rnn_h]
+            # hidden: [2, B*H, enc_rnn_h]
+            row_enc_out = row_enc_out.view(B, H, W, -1)  # [B, H, W, enc_rnn_h]
+            h, c = h.view(2, B, H, -1), c.view(2, B, H, -1)
+            return row_enc_out, (h, c)
+        else:
+            if self.pos_enc == 'spatial2d_enc':
+                encoded_imgs = self.pos_encoder(encoded_imgs)
+            encoded_imgs = encoded_imgs.view(B, H, W, -1)  # [B, H, W, enc_rnn_h*2]
+            return encoded_imgs, (h, c)
 
     def step_decoding(self, dec_states, O_t, enc_out, tgt):
         """Runing one step decoding"""
@@ -112,33 +214,40 @@ class Im2LatexModel(nn.Module):
         inp = torch.cat([prev_y, O_t], dim=1)  # [B, emb_size+enc_rnn_h]
         h_t, c_t = self.rnn_decoder(inp, dec_states)
 
-        context_t, attn_scores = self._get_attn(enc_out, dec_states[0])
-        # [B, enc_rnn_h]
-        O_t = self.W_c(torch.cat([h_t, context_t], dim=1)).tanh()
+        if self.attn == 0:
+            context_t = enc_out.mean(dim=[1, 2])  # = context_0 # [B, enc_rnn_h*2]
+        elif self.attn == 1:
+            context_t, attn_scores = self._get_SW_attn(enc_out, dec_states[0])  # [B, enc_rnn_h*2]
+        elif self.attn == 2:
+            context_t, attn_scores = self._get_CW_attn(enc_out, dec_states[0])  # [B, H, W, enc_rnn_h*2]
+            context_t, attn_scores = self._get_SW_attn(context_t, dec_states[0]) # [B, enc_rnn_h*2]
+        else:
+            raise ValueError('possible values for attn are 0, 1, 2')
+
+        O_t = self.W_c(torch.cat([h_t, context_t], dim=1)).tanh() # [B, enc_rnn_h]
 
         # calculate logit
         logit = F.softmax(self.W_out(O_t), dim=1)  # [B, out_size]
 
         return (h_t, c_t), O_t, logit
 
-    def _get_attn(self, enc_out, prev_h):
+    def _get_SW_attn(self, enc_out, prev_h):
         """Attention mechanism
         args:
             enc_out: row encoder's output [B, H, W, enc_rnn_h]
             prev_h: the previous time step hidden state [B, dec_rnn_h]
         return:
-            context: this time step context [B, enc_rnn_h]
+            context: this time step context [B, H, W, enc_rnn_h]
             attn_scores: Attention scores
         """
-        # self.W_v(enc_out) [B, H, W, enc_rnn_h]
-        # self.W_h(prev_h) [B, enc_rnn_h]
+        # spatial-wise attn
         B, H, W, _ = enc_out.size()
-        linear_prev_h = self.W_h(prev_h).view(B, 1, 1, -1)
+        linear_prev_h = self.W_h_SW(prev_h).view(B, 1, 1, -1)
         linear_prev_h = linear_prev_h.expand(-1, H, W, -1)
         e = torch.sum(
-            self.beta * torch.tanh(
+            self.beta_SW * torch.tanh(
                 linear_prev_h +
-                self.W_v(enc_out)
+                self.W_v_SW(enc_out)
             ),
             dim=-1
         )  # [B, H, W]
@@ -148,6 +257,33 @@ class Im2LatexModel(nn.Module):
         context = torch.sum(attn_scores * enc_out,
                             dim=[1, 2])  # [B, enc_rnn_h]
 
+        return context, attn_scores
+
+    def _get_CW_attn(self, enc_out, prev_h):
+        """Attention mechanism
+        args:
+            enc_out: row encoder's output [B, H, W, enc_rnn_h]
+            prev_h: the previous time step hidden state [B, dec_rnn_h]
+        return:
+            context: this time step context [B, enc_rnn_h]
+            attn_scores: Attention scores
+        """
+        # channel-wise attn
+        B, H, W, _ = enc_out.size()
+        linear_prev_h = self.W_h_CW(prev_h).view(B, 1, 1, -1)
+        linear_prev_h = linear_prev_h.expand(-1, H, W, -1)
+
+        e = torch.sum(
+            self.beta_CW * torch.tanh(
+                linear_prev_h +
+                self.W_v_CW(enc_out)
+            ),
+            dim=[1, 2]
+        )  # [B, C]
+
+        alpha = F.softmax(e, dim=-1)
+        attn_scores = alpha.unsqueeze(1).unsqueeze(1)
+        context = attn_scores * enc_out  # [B, H, W, enc_rnn_h]
         return context, attn_scores
 
     def init_decoder(self, enc_out, hiddens):
@@ -161,11 +297,24 @@ class Im2LatexModel(nn.Module):
         """
 
         h, c = hiddens
-        h, c = self._convert_hidden(h), self._convert_hidden(c)
+        B, H, _, _ = enc_out.shape
+        device = enc_out.device
+        if h is None:
+            # no rnn enc
+            if self.dec_init == 0:
+                # zero init
+                h = torch.zeros(B, self.dec_rnn_h)  # h_0
+                c = torch.zeros(B, self.dec_rnn_h)  # c_0
+                h, c = h.to(device), c.to(device)
+            elif self.dec_init == 1:
+                # non-zero init (может можно по-другому)
+                v = enc_out.mean(dim=[1, 2])
+                h = self.W_h0(v).tanh()  # h_0
+                c = self.W_c0(v).tanh()  # c_0
+        else:
+            h, c = self._convert_hidden(h), self._convert_hidden(c)
         context_0 = enc_out.mean(dim=[1, 2])
-        init_O = torch.tanh(
-            self.W_c(torch.cat([h, context_0], dim=1))
-        )
+        init_O = torch.tanh(self.W_c(torch.cat([h, context_0], dim=1)))
         return (h, c), init_O
 
     def _convert_hidden(self, hidden):
