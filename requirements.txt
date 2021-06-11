@@ -2,3 +2,4 @@ numpy
 torch
 torchvision
 torch_optimizer
+python-Levenshtein
