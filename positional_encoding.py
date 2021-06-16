@@ -70,11 +70,12 @@ class PositionalEncoding2d(nn.Module):
             pe[d_model::2, :, :] = torch.sin(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, max_len)
             pe[d_model + 1::2, :, :] = torch.cos(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, max_len)
 
-        self.register_buffer('pe', pe)
+        self.register_buffer('pe', pe.permute(1, 2, 0))
 
     def forward(self, x):
-        batch_size, d_model, height, width = x.size()
-        x = x + self.pe[:, :height, :width]
+        batch_size, height, width, d_model = x.size()
+        # print('X size:', x.size(), 'pe size:', self.pe[:height, :width].size())
+        x = x + self.pe[:height, :width, :]
         return self.dropout(x)
 
 

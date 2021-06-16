@@ -57,7 +57,7 @@ class Im2LatexTransformerModel(nn.Module):
         e_outputs = self.encode(imgs, src_mask)  # [B, H', W', 64]
         # decoding
         formulas_mask = get_pad_mask(formulas) & get_subsequent_mask(formulas)
-        d_output = self.decoder(formulas, e_outputs, src_mask, formulas_mask)
+        d_output = self.trans_decoder(formulas, e_outputs, src_mask, formulas_mask)
         output = self.out(d_output)
         return output
 
@@ -70,7 +70,7 @@ class Im2LatexTransformerModel(nn.Module):
         assert out_channels == 64, 'Wrong number of out channels'
 
         encoded_imgs = self.pos_encoder(encoded_imgs)
-        encoded_imgs = encoded_imgs.contiguous().view(B * H, W, out_channels)
+        encoded_imgs = encoded_imgs.contiguous().view(B, H*W, out_channels)
         e_outputs = self.trans_encoder(encoded_imgs, mask=src_mask)  # [B, H', W', 64]
         return e_outputs
 

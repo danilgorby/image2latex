@@ -23,14 +23,14 @@ class EncoderLayer(nn.Module):
         super().__init__()
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
-        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
+        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
         self.ff = FeedForward(d_model, d_ff, dropout)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, x, mask):
         x2 = self.norm1(x)
-        x = x + self.dropout1(self.attn(x2, x2, x2, mask))
+        x = x + self.dropout1(self.attn(x2, x2, x2, mask)[0])
         x2 = self.norm2(x)
         x = x + self.dropout2(self.ff(x2))
         return x
@@ -47,15 +47,15 @@ class DecoderLayer(nn.Module):
         self.dropout2 = nn.Dropout(dropout)
         self.dropout3 = nn.Dropout(dropout)
 
-        self.attn1 = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
-        self.attn2 = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
+        self.attn1 = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.attn2 = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
         self.ff = FeedForward(d_model, d_ff, dropout)
 
     def forward(self, x, e_outputs, src_mask, tgt_mask):
         x2 = self.norm1(x)
-        x = x + self.dropout1(self.attn1(x2, x2, x2, tgt_mask))
+        x = x + self.dropout1(self.attn1(x2, x2, x2, tgt_mask)[0])
         x2 = self.norm2(x)
-        x = x + self.dropout2(self.attn2(x2, e_outputs, e_outputs, src_mask))
+        x = x + self.dropout2(self.attn2(x2, e_outputs, e_outputs, src_mask)[0])
         x2 = self.norm3(x)
         x = x + self.dropout3(self.ff(x2))
         return x

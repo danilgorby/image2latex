@@ -37,6 +37,9 @@ class Trainer(object):
             self.model.train()
             total_loss = 0
             for i, (imgs, tgt4training, tgt4cal_loss) in enumerate(self.train_loader):
+                imgs = imgs.to(self.args.device)
+                tgt4training = tgt4training.to(self.args.device)
+                tgt4cal_loss = tgt4cal_loss.to(self.args.device)
                 preds = self.model(imgs, tgt4training)
                 ys = tgt4cal_loss
                 self.optimizer.zero_grad()
@@ -57,6 +60,9 @@ class Trainer(object):
             self.model.eval()
             val_loss = 0
             for imgs, tgt4training, tgt4cal_loss in iter(self.val_loader):
+                imgs = imgs.to(self.args.device)
+                tgt4training = tgt4training.to(self.args.device)
+                tgt4cal_loss = tgt4cal_loss.to(self.args.device)
                 with torch.no_grad():
                     preds = self.model(imgs, tgt4training)
                     loss = F.cross_entropy(preds.view(-1, preds.size(-1)), tgt4cal_loss, ignore_index=PAD_TOKEN)
