@@ -23,7 +23,7 @@ class EncoderLayer(nn.Module):
         super().__init__()
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
-        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
         self.ff = FeedForward(d_model, d_ff, dropout)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
@@ -47,8 +47,8 @@ class DecoderLayer(nn.Module):
         self.dropout2 = nn.Dropout(dropout)
         self.dropout3 = nn.Dropout(dropout)
 
-        self.attn1 = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
-        self.attn2 = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.attn1 = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
+        self.attn2 = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
         self.ff = FeedForward(d_model, d_ff, dropout)
 
     def forward(self, x, e_outputs, src_mask, tgt_mask):
@@ -71,9 +71,10 @@ class TransformerEncoder(nn.Module):
 
     def forward(self, src, mask):
         x = self.pe(src)
+        x = x.transpose(0, 1)
         for i in range(self.n_blocks):
             x = self.layers[i](x, mask)
-        return self.norm(x)
+        return self.norm(x).transpose(0, 1)
 
 
 class TransformerDecoder(nn.Module):
@@ -87,10 +88,11 @@ class TransformerDecoder(nn.Module):
 
     def forward(self, tgt, e_outputs, src_mask, tgt_mask):
         x = self.embed(tgt)
+        x = x.transpose(0, 1)
         x = self.pe(x)
         for i in range(self.n_blocks):
             x = self.layers[i](x, e_outputs, src_mask, tgt_mask)
-        return self.norm(x)
+        return self.norm(x).transpose(0, 1)
 
 
 class Transformer(nn.Module):
