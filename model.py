@@ -4,8 +4,75 @@ import torch.nn.functional as F
 from torch.nn import init
 import torchvision.models as models
 from positional_encoding import PositionalEncoding2d
+from transformer import TransformerEncoder, TransformerDecoder
+from make_vocab import PAD_TOKEN
+from utils import get_pad_mask, get_subsequent_mask
 
 INIT = 1e-2
+
+
+class Im2LatexTransformerModel(nn.Module):
+    """
+    Naive transformer-based model, based on Harvard Im2Latex, but with LSTM encoder-decoder replaced with transformer
+    """
+    def __init__(self, out_size, n_blocks, n_heads, d_ff=2048, dropout=0.1):
+        super().__init__()
+        self.cnn_encoder = self.cnn_encoder = nn.Sequential(
+                nn.Conv2d(3, 512, 3, 1, 0),
+                nn.BatchNorm2d(512),
+                nn.ReLU(),
+                nn.Conv2d(512, 512, 3, 1, 1),
+                nn.BatchNorm2d(512),
+                nn.ReLU(),
+                nn.MaxPool2d((1, 2), (1, 2), (0, 0)),
+                nn.Conv2d(512, 256, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d((2, 1), (2, 1), (0, 0)),
+                nn.Conv2d(256, 256, 3, 1, 1),
+                nn.BatchNorm2d(256),
+                nn.ReLU(),
+                nn.Conv2d(256, 128, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d((2, 2), (2, 2), (0, 0)),
+                nn.Conv2d(128, 64, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d((2, 2), (2, 2), (1, 1))
+            )
+        d_model = 64
+        self.pos_encoder = PositionalEncoding2d(d_model, dropout)
+        self.trans_encoder = TransformerEncoder(d_model, n_blocks, n_heads, d_ff, dropout, pe1d=False)
+        self.trans_decoder = TransformerDecoder(out_size, d_model, n_blocks, n_heads, d_ff, dropout, pe1d=True)
+
+    def forward(self, imgs, formulas):
+        """args:
+        imgs: [B, C, H, W]
+        formulas: [B, MAX_LEN]
+
+        return:
+        logits: [B, MAX_LEN, VOCAB_SIZE]
+        """
+
+        # encoding
+        src_mask = None
+        e_outputs = self.encode(imgs, src_mask)  # [B, H', W', 64]
+        # decoding
+        formulas_mask = get_pad_mask(formulas) & get_subsequent_mask(formulas)
+        d_output = self.decoder(formulas, e_outputs, src_mask, formulas_mask)
+        output = self.out(d_output)
+        return output
+
+    def encode(self, imgs, src_mask=None):
+        encoded_imgs = self.cnn_encoder(imgs)  # [B, 64, H', W']
+        encoded_imgs = encoded_imgs.permute(0, 2, 3, 1)  # [B, H', W', 64]
+
+        B, H, W, out_channels = encoded_imgs.size()
+
+        assert out_channels == 64, 'Wrong number of out channels'
+
+        encoded_imgs = self.pos_encoder(encoded_imgs)
+        encoded_imgs = encoded_imgs.contiguous().view(B * H, W, out_channels)
+        e_outputs = self.trans_encoder(encoded_imgs, mask=src_mask)  # [B, H', W', 64]
+        return e_outputs
 
 
 class Im2LatexModel(nn.Module):

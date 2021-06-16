@@ -1,8 +1,20 @@
 import pickle as pkl
-
+import numpy as np
 import torch
 
 from make_vocab import PAD_TOKEN, END_TOKEN, START_TOKEN, UNK_TOKEN
+
+
+def get_pad_mask(seq):
+    return (seq != PAD_TOKEN).unsqueeze(-2)
+
+
+def get_subsequent_mask(seq):
+    """ For masking out the subsequent info. """
+    sz_b, len_s = seq.size()
+    subsequent_mask = (1 - torch.triu(
+        torch.ones((1, len_s, len_s), device=seq.device), diagonal=1)).bool()
+    return subsequent_mask
 
 
 def collate_fn(sign2id, batch):

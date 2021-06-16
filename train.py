@@ -10,7 +10,7 @@ from torch_optimizer import RAdam
 
 from utils import collate_fn, build_vocab
 from data import Im2LatexDataset
-from model import Im2LatexModel  # check this
+from model import Im2LatexModel, Im2LatexTransformerModel  # check this
 from training import Trainer
 from make_vocab import make_vocab
 import wandb
@@ -65,7 +65,6 @@ def main():
         type=str,
         default=f'./checkpoints/',
         help="The dir to save checkpoints")
-    
     parser.add_argument(
         "--load_from_checkpoint",
         type=str,
@@ -112,8 +111,43 @@ def main():
     parser.add_argument(
         "--max_len",
         type=int,
-        default=50,
+        default=100,
         help="max predicted sequence length"
+    )
+
+    parser.add_argument(
+        "--model",
+        type=str,
+        default='recurrent',
+        help='type of Im2Latex model architecture'
+    )
+
+    parser.add_argument(
+        "--n_blocks",
+        type=int,
+        default=6,
+        help="number of transformer blocks",
+    )
+
+    parser.add_argument(
+        "--n_heads",
+        type=int,
+        default=8,
+        help="number of heads per attention block"
+    )
+
+    parser.add_argument(
+        "--d_ff",
+        type=int,
+        default=2048,
+        help="feed forward dimension"
+    )
+
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.1,
+        help="dropout"
     )
 
     wandb.login()
@@ -154,9 +188,15 @@ def main():
 
     # construct model
     vocab_size = len(vocab)
-    model = Im2LatexModel(vocab_size, args.emb_dim, args.enc_rnn_h,
-                          args.dec_rnn_h, args.cnn, args.attn,
-                          args.pos_enc, args.dec_init)
+
+    if args.model == 'transformer':
+        model = Im2LatexTransformerModel(vocab_size, args.n_blocks, args.n_heads, args.d_ff, args.dropout)
+    elif args.model == 'recurrent':
+        model = Im2LatexModel(vocab_size, args.emb_dim, args.enc_rnn_h,
+                              args.dec_rnn_h, args.cnn, args.attn,
+                              args.pos_enc, args.dec_init)
+    else:
+        raise NotImplementedError()
 
     # construct optimizer
     if args.opt == 'RAdam':
@@ -190,9 +230,12 @@ def main():
         # init trainer
         trainer = Trainer(optimizer, model, lr_scheduler, train_loader, val_loader, test_loader, args, epoch, global_step)
         # begin training
-        trainer.train()
+        if isinstance(model, Im2LatexModel):
+            trainer.train()
 
-        trainer.test(beam_size=args.test_beam_size)
+            trainer.test(beam_size=args.test_beam_size)
+        else:
+            trainer.train_transformer()  # TODO: add transformer evaluation from transformer_evaluation.py
 
 
 if __name__ == "__main__":

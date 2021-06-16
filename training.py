@@ -3,6 +3,7 @@ from os.path import join
 import torch
 import torch.nn.functional as F
 from torch.nn.utils import clip_grad_norm_
+from model import Im2LatexTransformerModel
 
 from make_vocab import PAD_TOKEN, START_TOKEN, END_TOKEN
 from beam_search import BeamSearch
@@ -27,8 +28,69 @@ class Trainer(object):
         self.best_val_loss = 1e18
         self._metric_skip_tokens = [PAD_TOKEN, START_TOKEN, END_TOKEN]
 
+    def train_transformer(self):
+        assert isinstance(self.model, Im2LatexTransformerModel), 'Use this only for Im2LatexTransformerModel'
+        wandb.watch(self.model)
+        total_step = len(self.train_loader)
+        val_size = len(self.val_loader)
+        for epoch in range(self.args.epochs):
+            self.model.train()
+            total_loss = 0
+            for i, (imgs, tgt4training, tgt4cal_loss) in enumerate(self.train_loader):
+                preds = self.model(imgs, tgt4training)
+                ys = tgt4cal_loss
+                self.optimizer.zero_grad()
+                loss = F.cross_entropy(preds.view(-1, preds.size(-1)), ys, ignore_index=PAD_TOKEN)
+                loss.backward()
+                self.optimizer.step()
+
+                total_loss += loss.item()
+
+                if i % self.args.print_freq == 0:
+                    wandb.log({"epoch": epoch, "loss": total_loss / self.args.print_freq})
+                    print("Epoch {}, step:{}/{} {:.2f}%, Loss:{:.4f}".format(
+                        self.epoch, i, total_step,
+                        100 * i / total_step,
+                        total_loss / self.args.print_freq
+                    ))
+
+            self.model.eval()
+            val_loss = 0
+            for imgs, tgt4training, tgt4cal_loss in iter(self.val_loader):
+                with torch.no_grad():
+                    preds = self.model(imgs, tgt4training)
+                    loss = F.cross_entropy(preds.view(-1, preds.size(-1)), tgt4cal_loss, ignore_index=PAD_TOKEN)
+                val_loss += loss.item()
+
+            avg_loss = val_loss / val_size
+            wandb.log({"epoch:": epoch, "val_avg_loss": avg_loss})
+            print("Epoch {}, validation average loss: {:.4f}".format(
+                self.epoch, avg_loss
+            ))
+
+            checkpoint = {
+                'epoch': epoch,
+                'global_step': 0,
+                'model_state_dict': self.model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'scheduler_state_dict': self.lr_scheduler.state_dict()
+            }
+
+            filename = join(self.args.log_dir, "epoch={epoch:02d}-val_loss={val_loss:.4f}.ckpt".format(
+                epoch=self.epoch, val_loss=avg_loss))
+
+            torch.save(checkpoint, filename)
+
+            wandb.save(filename)
+
+            if avg_loss < self.best_val_loss:
+                self.best_val_loss = avg_loss
+                self.save_model()
+            return avg_loss
+
     def train(self):
         wandb.watch(self.model)
+        total_step = len(self.train_loader)
         while self.epoch <= self.args.epochs:
             self.model.train()
             losses = 0.0
@@ -38,7 +100,6 @@ class Trainer(object):
 
                 # log message
                 if self.step % self.args.print_freq == 0:
-                    total_step = len(self.train_loader)
                     wandb.log({"epoch": self.epoch, "loss": losses / self.args.print_freq})
                     print("Epoch {}, step:{}/{} {:.2f}%, Loss:{:.4f}".format(
                         self.epoch, self.step, total_step,
