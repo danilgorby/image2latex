@@ -62,10 +62,10 @@ class Trainer(object):
                     loss = F.cross_entropy(preds.view(-1, preds.size(-1)), tgt4cal_loss, ignore_index=PAD_TOKEN)
                 val_loss += loss.item()
 
-            avg_loss = val_loss / val_size
-            wandb.log({"epoch:": epoch, "val_avg_loss": avg_loss})
+            val_loss = val_loss / val_size
+            wandb.log({"epoch:": epoch, "val_avg_loss": val_loss})
             print("Epoch {}, validation average loss: {:.4f}".format(
-                self.epoch, avg_loss
+                epoch, val_loss
             ))
 
             checkpoint = {
@@ -77,16 +77,16 @@ class Trainer(object):
             }
 
             filename = join(self.args.log_dir, "epoch={epoch:02d}-val_loss={val_loss:.4f}.ckpt".format(
-                epoch=self.epoch, val_loss=avg_loss))
+                epoch=epoch, val_loss=val_loss))
 
             torch.save(checkpoint, filename)
 
             wandb.save(filename)
 
-            if avg_loss < self.best_val_loss:
-                self.best_val_loss = avg_loss
+            if val_loss < self.best_val_loss:
+                self.best_val_loss = val_loss
                 self.save_model()
-            return avg_loss
+            self.lr_scheduler.step(val_loss)
 
     def train(self):
         wandb.watch(self.model)
