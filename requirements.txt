@@ -3,3 +3,4 @@ torch
 torchvision
 torch_optimizer
 python-Levenshtein
+wandb

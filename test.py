@@ -35,10 +35,15 @@ def evaluate(predictor: LatexProducer,
     assert len(data_loader.dataset) > 0
     device = args.device
     log = {}
-    BLEUs, edit_dists = [], []
-    bleu_score, edit_distance = 0, 1
+
     loader = tqdm(data_loader, total=len(data_loader.dataset))
-    precision_, recall_, f1_ = [], [], []
+
+    edit_dists = 0
+    bleu_score, edit_distance = 0, 1
+    precision_, recall_, f1_, cnt = 0., 0., 0., 0
+    # buffer_pred, buffer_tgt_formulas = [], []
+    tokens_to_del = ['<unk>', '</s>', '<s>', '<pad>']
+    bleus = 0
 
     for img, _, tgt_formulas in loader:
 
@@ -56,27 +61,23 @@ def evaluate(predictor: LatexProducer,
         if not tgt_formulas:
             continue
 
-        BLEUs.append(metrics.bleu_score([pred], [tgt_formulas]))
+        pred = [token for token in pred if token not in tokens_to_del]
+        tgt_formulas = [token for token in tgt_formulas if token not in tokens_to_del]
 
-        pred = ' '.join(pred) \
-            .replace('<unk>', '') \
-            .replace('</s>', '') \
-            .replace('<s>', '') \
-            .replace('<pad>', '').strip()
+        # buffer_pred.append(pred)
+        # buffer_tgt_formulas.append([tgt_formulas])
+        bleus += metrics.bleu_score([pred], [[tgt_formulas]])
 
-        tgt_formulas = ' '.join(tgt_formulas) \
-            .replace('<unk>', '') \
-            .replace('</s>', '') \
-            .replace('<s>', '') \
-            .replace('<pad>', '').strip()
+        pred = ' '.join(pred)
+        tgt_formulas = ' '.join(tgt_formulas)
 
         # print()
         # print('-------------------')
         # print('PRED', pred)
         # print()
         # print('TGT', tgt_formulas)
-
-        edit_dists.append(distance(pred, tgt_formulas) / len(tgt_formulas))
+        ed = distance(pred, tgt_formulas) / max(len(tgt_formulas), len(pred))
+        edit_dists += ed
 
         tp, fp, fn = 0, 0, 0
         if len(tgt_formulas) == len(pred) and all([g == p for g, p in zip(tgt_formulas, pred)]):
@@ -95,36 +96,41 @@ def evaluate(predictor: LatexProducer,
         precision, recall, f1 = 0.0, 0.0, 0.0
         if tp + fp > 0:
             precision = tp / (tp + fp)
-            log[name + '/precision'] = precision
+
         if tp + fn > 0:
             recall = tp / (tp + fn)
-            log[name + '/recall'] = recall
+
         if precision + recall > 0:
             f1 = 2 * precision * recall / (precision + recall)
-            log[name + '/f1'] = f1
 
-        precision_.append(precision)
-        recall_.append(recall)
-        f1_.append(f1)
+        precision_ += precision
+        recall_ += recall
+        f1_ += f1
+        cnt += 1
 
-        loader.set_description('BLEU: %.3f, ED: %.2e, precision: %.2f, recall: %.2f' %
-                               (np.mean(BLEUs), np.mean(edit_dists), np.mean(precision_), np.mean(recall_)))
+        loader.set_description('ED: %.2f, precision: %.2f, recall: %.2f, BLEU: %.2f' %
+                               (edit_dists / cnt, precision_ / cnt, recall_ / cnt, bleus / cnt))
 
-    if len(BLEUs) > 0:
-        bleu_score = np.mean(BLEUs)
-        log[name + '/bleu'] = bleu_score
+    # bleu_score = metrics.bleu_score(buffer_pred, buffer_tgt_formulas)
+    bleu_score = bleus / cnt
+    log[name + '/bleu'] = bleu_score
 
-    if len(edit_dists) > 0:
-        edit_distance = np.mean(edit_dists)
-        log[name + '/edit_distance'] = edit_distance
+    edit_distance = edit_dists / cnt
+    log[name + '/edit_distance'] = edit_distance
 
-    precision = np.mean(precision_)
-    recall = np.mean(recall_)
-    f1 = np.mean(f1_)
+    precision = precision_ / cnt
+    recall = recall_ / cnt
+    f1 = f1_ / cnt
+
+    log[name + '/precision'] = precision
+    log[name + '/recall'] = recall
+    log[name + '/f1'] = f1
+
     wandb.log(log)
-
-    print('\n%s\n%s' % (tgt_formulas, pred))
-    print('BLEU: %.2f' % bleu_score)
+    print('\nExamples:')
+    print('\nTGT:%s\nPRED:%s' % (tgt_formulas, pred))
+    print('\nMetrics:')
+    print('BLEU: %.5f' % bleu_score)
     print(f'test precision: {precision}, test recall: {recall}, test f1: {f1}')
     return bleu_score, edit_distance, precision, recall
 
@@ -145,6 +151,7 @@ if __name__ == '__main__':
         type=int,
         default=512,
         help="The hidden state of the decoder RNN")
+
     # new args
     parser.add_argument(
         "--cnn",
@@ -173,7 +180,7 @@ if __name__ == '__main__':
     # data
     parser.add_argument("--vocab_path", type=str, default="./data/vocab.pkl", help="The path to vocab file")
     parser.add_argument('-c', '--checkpoint', default='./ckpt/best.ckpt', type=str, help='path to model checkpoint')
-    parser.add_argument('-d', '--data_path', default='./sample_data/', type=str, help='path tot dataset dir')
+    parser.add_argument('-d', '--data_path', default='./data/', type=str, help='path tot dataset dir')
     parser.add_argument("--save_dir", type=str, default="./results", help="The dir to save results")
 
     # eval params
@@ -185,9 +192,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    args.__dict__['device'] = 'cuda' if torch.cuda.is_available() and args['cuda'] else 'cpu'
+    args.__dict__['device'] = 'cuda' if torch.cuda.is_available() and args.cuda else 'cpu'
 
-    # когда научимся нормально считать метрики, будем туда что-то сохранять
+    # когда научимся нормально считать метрики, можно туда что-то сохранять
     # makedirs(args.__dict__['save_dir'], exist_ok=True)
 
     make_vocab(args.data_path)
@@ -203,13 +210,15 @@ if __name__ == '__main__':
 
     # construct model
     vocab_size = len(vocab)
-    model = Im2LatexModel(vocab_size, args.emb_dim, args.enc_rnn_h,
-                          args.dec_rnn_h, args.cnn, args.attn,
-                          args.pos_enc, args.dec_init)
 
-    checkpoint = torch.load(args.checkpoint, map_location=args.device)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model.to(args.device)
-    predictor = LatexProducer(model, vocab, max_len=args.max_len)
+    with wandb.init(project='im2latex', config=args):
+        model = Im2LatexModel(vocab_size, args.emb_dim, args.enc_rnn_h,
+                              args.dec_rnn_h, args.cnn, args.attn,
+                              args.pos_enc, args.dec_init)
 
-    evaluate(predictor, test_loader, args)
+        checkpoint = torch.load(args.checkpoint, map_location=args.device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model.to(args.device)
+        predictor = LatexProducer(model, vocab, max_len=args.max_len)
+
+        evaluate(predictor, test_loader, args)
