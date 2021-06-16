@@ -16,6 +16,7 @@ from make_vocab import make_vocab
 import wandb
 import os
 
+torch.manual_seed(42)
 
 def main():
     # get args
