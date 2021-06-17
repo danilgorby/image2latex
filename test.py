@@ -52,10 +52,10 @@ def evaluate(predictor: LatexProducer,
         img = img.to(device)
 
         # uncomment next line for beam search decoding
-        # pred = predictor._bs_decoding(img)[0].split()
+        pred = predictor._bs_decoding(img)[0].split()
 
         # uncomment next line for greedy decoding
-        pred = predictor._greedy_decoding(img)[0].split()
+        # pred = predictor._greedy_decoding(img)[0].split()
         tgt_formulas = predictor._idx2formulas(tgt_formulas)[0].split()
 
         if not tgt_formulas:
@@ -66,7 +66,7 @@ def evaluate(predictor: LatexProducer,
 
         # buffer_pred.append(pred)
         # buffer_tgt_formulas.append([tgt_formulas])
-        bleus += metrics.bleu_score([pred], [[tgt_formulas]])
+        bleus += metrics.bleu_score([pred], [[tgt_formulas]], max_n=3, weights=[1/3., 1/3., 1/3.])
 
         pred = ' '.join(pred)
         tgt_formulas = ' '.join(tgt_formulas)
@@ -185,7 +185,7 @@ if __name__ == '__main__':
 
     # eval params
     parser.add_argument('--beam_size', type=int, default=5, help='Beam size for beam search')
-    parser.add_argument('--max_len', type=int, default=50, help='Maximum length of sequence')
+    parser.add_argument('--max_len', type=int, default=150, help='Maximum length of sequence')
 
     # other params
     parser.add_argument('--cuda', action='store_true', help='Use cuda or not')
@@ -206,7 +206,7 @@ if __name__ == '__main__':
         batch_size=1,
         collate_fn=partial(collate_fn, vocab.sign2id),
         # pin_memory=True if use_cuda else False,
-        num_workers=1)
+        num_workers=2)
 
     # construct model
     vocab_size = len(vocab)
