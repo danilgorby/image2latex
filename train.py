@@ -3,6 +3,7 @@ from functools import partial
 from os.path import join
 
 import torch
+import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -13,6 +14,7 @@ from data import Im2LatexDataset
 from model import Im2LatexModel, Im2LatexTransformerModel  # check this
 from training import Trainer
 from make_vocab import make_vocab
+from focal_loss import FocalLoss
 import wandb
 import os
 
@@ -49,6 +51,13 @@ def main():
     parser.add_argument("--test_beam_size", type=int, default=5)
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--opt", type=str, default='RAdam')
+    parser.add_argument(
+        "--loss",
+        type=str,
+        default='cross_entropy',
+        help='loss function'
+    )
+    parser.add_argument("--gamma_focal", type=float, default=None)
     parser.add_argument(
         "--lr", type=float, default=0.001, help="Learning Rate")
     parser.add_argument(
@@ -213,6 +222,14 @@ def main():
         patience=args.lr_patience,
         verbose=True)
 
+    if args.loss == 'cross_entropy':
+        criterion = nn.CrossEntropyLoss()
+    elif args.loss == 'focal':
+        assert args.gamma_focal is not None, 'no gamma value specified'
+        criterion = FocalLoss(gamma=args.gamma_focal)
+    else:
+        raise NotImplementedError()
+
     with wandb.init(project='im2latex', config=args):
 
         epoch = 0
@@ -228,7 +245,8 @@ def main():
 
         model = model.to(device)
         # init trainer
-        trainer = Trainer(optimizer, model, lr_scheduler, train_loader, val_loader, test_loader, args, epoch, global_step)
+        trainer = Trainer(optimizer, model, criterion, lr_scheduler, train_loader, val_loader, test_loader, args, epoch,
+                          global_step)
         # begin training
         if isinstance(model, Im2LatexModel):
             trainer.train()

@@ -30,7 +30,7 @@ class EncoderLayer(nn.Module):
 
     def forward(self, x, mask):
         x2 = self.norm1(x)
-        x = x + self.dropout1(self.attn(x2, x2, x2, mask)[0])
+        x = x + self.dropout1(self.attn(x2, x2, x2, attn_mask=mask)[0])
         x2 = self.norm2(x)
         x = x + self.dropout2(self.ff(x2))
         return x
@@ -53,9 +53,9 @@ class DecoderLayer(nn.Module):
 
     def forward(self, x, e_outputs, src_mask, tgt_mask):
         x2 = self.norm1(x)
-        x = x + self.dropout1(self.attn1(x2, x2, x2, tgt_mask)[0])
+        x = x + self.dropout1(self.attn1(x2, x2, x2, attn_mask=tgt_mask)[0])
         x2 = self.norm2(x)
-        x = x + self.dropout2(self.attn2(x2, e_outputs, e_outputs, src_mask)[0])
+        x = x + self.dropout2(self.attn2(x2, e_outputs, e_outputs, attn_mask=src_mask)[0])
         x2 = self.norm3(x)
         x = x + self.dropout3(self.ff(x2))
         return x

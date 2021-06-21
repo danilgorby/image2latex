@@ -42,6 +42,7 @@ class Im2LatexTransformerModel(nn.Module):
         self.pos_encoder = PositionalEncoding2d(d_model, dropout)
         self.trans_encoder = TransformerEncoder(d_model, n_blocks, n_heads, d_ff, dropout, pe1d=False)
         self.trans_decoder = TransformerDecoder(out_size, d_model, n_blocks, n_heads, d_ff, dropout, pe1d=True)
+        self.out = nn.Linear(d_model, out_size)
 
     def forward(self, imgs, formulas):
         """args:
@@ -283,7 +284,7 @@ class Im2LatexModel(nn.Module):
         O_t = self.W_c(torch.cat([h_t, context_t], dim=1)).tanh() # [B, enc_rnn_h]
 
         # calculate logit
-        logit = F.softmax(self.W_out(O_t), dim=1)  # [B, out_size]
+        logit = self.W_out(O_t)  # F.softmax(self.W_out(O_t), dim=1)  # [B, out_size]
 
         return (h_t, c_t), O_t, logit
 

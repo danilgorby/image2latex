@@ -12,11 +12,12 @@ import wandb
 
 
 class Trainer(object):
-    def __init__(self, optimizer, model, lr_scheduler,
+    def __init__(self, optimizer, model, criterion, lr_scheduler,
                  train_loader, val_loader, test_loader, args, start_epoch=0, global_step=0):
 
         self.optimizer = optimizer
         self.model = model
+        self.criterion = criterion
         self.lr_scheduler = lr_scheduler
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -43,7 +44,7 @@ class Trainer(object):
                 preds = self.model(imgs, tgt4training)
                 ys = tgt4cal_loss
                 self.optimizer.zero_grad()
-                loss = F.cross_entropy(preds.view(-1, preds.size(-1)), ys, ignore_index=PAD_TOKEN)
+                loss = self.criterion(preds.transpose(1, 2), tgt4cal_loss, ignore_index=PAD_TOKEN)
                 loss.backward()
                 self.optimizer.step()
 
@@ -65,7 +66,7 @@ class Trainer(object):
                 tgt4cal_loss = tgt4cal_loss.to(self.args.device)
                 with torch.no_grad():
                     preds = self.model(imgs, tgt4training)
-                    loss = F.cross_entropy(preds.view(-1, preds.size(-1)), tgt4cal_loss, ignore_index=PAD_TOKEN)
+                    loss = self.criterion(preds.transpose(1, 1), tgt4cal_loss, ignore_index=PAD_TOKEN)
                 val_loss += loss.item()
 
             val_loss = val_loss / val_size
@@ -292,11 +293,11 @@ class Trainer(object):
         logits = logits.masked_select(
             mask.unsqueeze(2).expand(-1, -1, logits.size(2))
         ).contiguous().view(-1, logits.size(2))
-        logits = torch.log(logits)
+        # logits = torch.log(logits)
 
         assert logits.size(0) == targets.size(0)
 
-        loss = F.nll_loss(logits, targets)
+        loss = self.criterion(logits, targets)
         return loss
 
     def save_model(self):
